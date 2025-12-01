@@ -1,0 +1,90 @@
+package router
+
+import (
+	"net/http"
+	"question-answer/routes"
+	"strings"
+)
+
+type Router struct {
+	routes map[string]http.HandlerFunc
+}
+
+func New(routeDefs []routes.RouteDefinition) *Router {
+	router := &Router{
+		routes: make(map[string]http.HandlerFunc),
+	}
+
+	for _, route := range routeDefs {
+		key := route.Method + " " + route.Path
+		router.routes[key] = route.Handler
+	}
+
+	return router
+}
+
+func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	handler := rt.findHandler(r)
+	if handler != nil {
+		handler(w, r)
+		return
+	}
+
+	http.NotFound(w, r)
+}
+
+func (rt *Router) findHandler(r *http.Request) http.HandlerFunc {
+	method := r.Method
+	path := r.URL.Path
+
+	key := method + " " + path
+	if handler, exists := rt.routes[key]; exists {
+		return handler
+	}
+
+	for route, handler := range rt.routes {
+		if rt.matchRoute(route, method, path) {
+			return handler
+		}
+	}
+
+	return nil
+}
+
+func (rt *Router) matchRoute(route, method, path string) bool {
+	routeParts := strings.Split(route, " ")
+	if len(routeParts) != 2 || routeParts[0] != method {
+		return false
+	}
+
+	routePath := routeParts[1]
+
+	if routePath == path {
+		return true
+	}
+
+	return rt.matchDynamicRoute(routePath, path)
+}
+
+func (rt *Router) matchDynamicRoute(routePath, actualPath string) bool {
+	routeSegments := strings.Split(routePath, "/")
+	actualSegments := strings.Split(actualPath, "/")
+
+	if len(routeSegments) != len(actualSegments) {
+		return false
+	}
+
+	for i, routeSeg := range routeSegments {
+		actualSeg := actualSegments[i]
+
+		if strings.HasPrefix(routeSeg, "{") && strings.HasSuffix(routeSeg, "}") {
+			continue
+		}
+
+		if routeSeg != actualSeg {
+			return false
+		}
+	}
+
+	return true
+}
